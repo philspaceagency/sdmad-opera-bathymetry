@@ -18,6 +18,7 @@ Before starting, ensure you have:
 - **Google Earth Engine** Account, needed to download large scale satellite images (Sentinel2)
 
 ### Model Training 
+------------------
 ### 🌊 Physics-Informed Neural Network (PINN)
 **Complete Training Explanation for Bathymetry Estimation**
 
@@ -53,10 +54,18 @@ Output: Predicted Depth (1 value)
 Wraps the base model and adds physics constraints.
 
 ```python
-class ImprovedPINNWrapper:
+class PINNWrapper:
     base_model       # ResNet that predicts depth
     k                # Attenuation coefficient (learnable!)
     R0               # Shallow water reflectance (learnable!)
     Rinf             # Deep water reflectance (learnable!)
     lambda_phy       # Physics loss weight (adaptive!)
+```
+
+```yaml
+Would you like me to:
+- Save the `README.md` into your local repo (I can provide a small script to write it locally), or  
+- Create a ready-to-commit file content and show the `git` commands to add/commit/push it?
+
+Which one do you want next?
 ```
