@@ -65,8 +65,9 @@ Output: Depth
 ```
 ## ⚛️ The Physics – Beer-Lambert Law
 Light attenuation in water follows the exponential decay relationship:
+```math
 R(z) = R_{\infty} + (R_0 - R_{\infty}) \times e^{-kz}
-
+```
 | Symbol   | Meaning                 | Typical Range |
 | :------- | :---------------------- | :------------ |
 | **R(z)** | Reflectance at depth z  | 0.05–0.15     |
