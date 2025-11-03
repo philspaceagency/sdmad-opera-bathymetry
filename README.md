@@ -62,10 +62,4 @@ class PINNWrapper:
     lambda_phy       # Physics loss weight (adaptive!)
 ```
 
-```yaml
-Would you like me to:
-- Save the `README.md` into your local repo (I can provide a small script to write it locally), or  
-- Create a ready-to-commit file content and show the `git` commands to add/commit/push it?
 
-Which one do you want next?
-```
