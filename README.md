@@ -110,8 +110,8 @@ update(model_weights, k, R0, Rinf)
 log(RMSE, MAE, loss_data, loss_physics)
 ```
 ## 📉 Loss Functions
-| Type                   | Equation                                       | Purpose                           |
-| ---------------------- | ---------------------------------------------- | --------------------------------- |
-| **Data Loss (MSE)**    | ( \frac{1}{n}\sum (z_{true} - z_{pred})^2 )    | Enforces accuracy to ground truth |
-| **Physics Loss (MSE)** | ( \frac{1}{n}\sum (R_{obs} - R_{sim})^2 )      | Enforces Beer-Lambert consistency |
-| **Total Loss**         | ( L_{total} = L_{data} + \lambda L_{physics} ) | Balances realism and accuracy     |
+| Type                   | Equation                                           | Purpose                           |
+| ---------------------- | -------------------------------------------------- | --------------------------------- |
+| **Data Loss (MSE)**    | $$( \frac{1}{n}\sum (z_{true} - z_{pred})^2 )$$    | Enforces accuracy to ground truth |
+| **Physics Loss (MSE)** | $$( \frac{1}{n}\sum (R_{obs} - R_{sim})^2 )$$      | Enforces Beer-Lambert consistency |
+| **Total Loss**         | $$( L_{total} = L_{data} + \lambda L_{physics} )$$ | Balances realism and accuracy     |
