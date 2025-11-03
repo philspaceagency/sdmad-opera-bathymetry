@@ -36,7 +36,7 @@ Unlike traditional data-driven models, the **PINN** integrates both **neural lea
 
 ## 🧭 Workflow
 
-```mermaid
+```sqe
 graph TD
     A[Sentinel-2 Reflectance Data] --> B[Training Dataset Preparation]
     B --> C[ResNet Base Model]
