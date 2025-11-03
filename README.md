@@ -1,3 +1,3 @@
-# sdmad-coastal-marine
+# sdmad-opera-bathymetry
 
 #### Code repositories for coastal-marine applications
