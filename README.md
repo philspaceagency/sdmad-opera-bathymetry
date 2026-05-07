@@ -65,6 +65,7 @@ The PINN uses a Transformer encoder backbone that treats each spectral band as a
 │       ├── pinn_weights.weights.h5
 │       ├── training_history.csv
 │       ├── metrics.json
+│       ├── pinn_training_history.png
 │       └── pinn_predictions_evaluation.png
 │
 └── README.md
