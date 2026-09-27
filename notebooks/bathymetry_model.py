@@ -23,6 +23,7 @@ Public API
 Expected file layout in model_dir
 ----------------------------------
   model_dir/
+      base_model.keras         # transformer architecture + weights (preferred)
       physics_params.json      # k, R0, Rinf lists
       pinn_weights.weights.h5  # all trainable weights
       scaler.pkl               # sklearn StandardScaler (optional)
@@ -50,6 +51,26 @@ import tensorflow as tf
 # ============================================================================
 # 1.  Model architecture
 # ============================================================================
+
+@tf.keras.utils.register_keras_serializable(package="bathymetry")
+class BandPositionEmbedding(layers.Layer):
+    """
+    Learnable per-band positional embedding added to the band tokens.
+
+    Replaces `layers.Embedding(...)(tf.range(n_bands))`, which Keras runs eagerly
+    while building the model: the result was a random constant baked into the
+    graph — never trained, and not stored in the .weights.h5 file.
+    """
+
+    def build(self, input_shape):
+        self.pos = self.add_weight(
+            name="pos", shape=(input_shape[-2], input_shape[-1]),
+            initializer=tf.keras.initializers.RandomUniform(-0.05, 0.05), trainable=True,
+        )
+
+    def call(self, x):
+        return x + self.pos
+
 
 def create_transformer_model(
     input_shape: tuple = (8,),
@@ -84,9 +105,7 @@ def create_transformer_model(
     x = layers.Dense(embed_dim)(x)                                 # (B, 8, D)
 
     # ── 2. Learnable positional encoding ─────────────────────────────────
-    positions    = tf.range(start=0, limit=n_bands, delta=1)
-    pos_embed    = layers.Embedding(input_dim=n_bands, output_dim=embed_dim)(positions)
-    x            = x + pos_embed                                   # (B, 8, D)
+    x = BandPositionEmbedding(name="band_position_embedding")(x)   # (B, 8, D)
 
     # ── 3. Transformer encoder blocks ────────────────────────────────────
     for _ in range(n_blocks):
@@ -112,6 +131,12 @@ def create_transformer_model(
 # ============================================================================
 # 2.  PINN wrapper
 # ============================================================================
+
+def _softplus_inverse(x: np.ndarray) -> np.ndarray:
+    """Inverse of softplus, so softplus(_softplus_inverse(x)) == x."""
+    x = np.maximum(np.asarray(x, dtype=np.float64), 1e-6)
+    return np.log(np.expm1(x)).astype(np.float32)
+
 
 class PINNWrapper(Model):
     """
@@ -160,28 +185,26 @@ class PINNWrapper(Model):
         if init_R0   is None: init_R0   = np.full(n_bands, 0.15, dtype=np.float32)
         if init_Rinf is None: init_Rinf = np.full(n_bands, 0.05, dtype=np.float32)
 
-        init_k    = np.asarray(init_k,    dtype=np.float32)
-        init_R0   = np.asarray(init_R0,   dtype=np.float32)
-        init_Rinf = np.asarray(init_Rinf, dtype=np.float32)
+        # Scalars (legacy physics_params.json) are broadcast to one value per band
+        init_k    = np.broadcast_to(np.asarray(init_k,    dtype=np.float32), (n_bands,))
+        init_R0   = np.broadcast_to(np.asarray(init_R0,   dtype=np.float32), (n_bands,))
+        init_Rinf = np.broadcast_to(np.asarray(init_Rinf, dtype=np.float32), (n_bands,))
 
         # ── Unconstrained raw variables (constraints applied via properties)
         # k     = softplus(raw_k)          → k > 0
         # Rinf  = sigmoid(raw_Rinf)        → 0 < Rinf < 1
         # R0    = Rinf + softplus(raw_δ)   → R0 > Rinf
-        self._raw_k = tf.Variable(
-            tf.math.log(np.exp(init_k) + 1e-7) - tf.math.log(1.0 + 1e-7),
-            trainable=True, name="raw_k", dtype=tf.float32,
-        )
+        # Created with add_weight (not tf.Variable) so Keras 3 tracks, trains and
+        # saves them — this must match the training notebook's weight layout.
+        self._raw_k     = self.add_weight(name="raw_k",     shape=(n_bands,), initializer="zeros", trainable=True)
+        self._raw_Rinf  = self.add_weight(name="raw_Rinf",  shape=(n_bands,), initializer="zeros", trainable=True)
+        self._raw_delta = self.add_weight(name="raw_delta", shape=(n_bands,), initializer="zeros", trainable=True)
+
         init_Rinf_clipped = np.clip(init_Rinf, 1e-6, 1.0 - 1e-6)
-        self._raw_Rinf = tf.Variable(
-            tf.math.log(init_Rinf_clipped / (1.0 - init_Rinf_clipped)),
-            trainable=True, name="raw_Rinf", dtype=tf.float32,
-        )
         init_delta = np.maximum(init_R0 - init_Rinf, 0.01)
-        self._raw_delta = tf.Variable(
-            tf.math.log(np.exp(init_delta) + 1e-7) - tf.math.log(1.0 + 1e-7),
-            trainable=True, name="raw_delta", dtype=tf.float32,
-        )
+        self._raw_k.assign(_softplus_inverse(init_k))
+        self._raw_Rinf.assign(np.log(init_Rinf_clipped / (1.0 - init_Rinf_clipped)))
+        self._raw_delta.assign(_softplus_inverse(init_delta))
         self.lambda_phy = tf.Variable(
             lambda_phy, trainable=False, dtype=tf.float32
         )
@@ -513,6 +536,7 @@ def load_bathymetry_model(
 
     Expected files in model_dir
     ---------------------------
+    base_model.keras         — (recommended) saved transformer backbone
     physics_params.json      — dict with keys 'k', 'R0', 'Rinf' (lists of floats)
     pinn_weights.weights.h5  — Keras saved weights
     scaler.pkl               — (optional) sklearn scaler
@@ -549,9 +573,22 @@ def load_bathymetry_model(
     if verbose:
         print("\nBuilding PINN model skeleton...")
 
-    base_model = create_transformer_model(
-        input_shape=(n_bands,), n_blocks=3, embed_dim=64, n_heads=4
-    )
+    # Load the saved backbone when available: models trained before
+    # BandPositionEmbedding hold their positional encoding as a graph constant
+    # that is only stored in base_model.keras, not in the .weights.h5 file.
+    base_model_path = os.path.join(model_dir, "base_model.keras")
+    if os.path.exists(base_model_path):
+        base_model = tf.keras.models.load_model(base_model_path, compile=False)
+        if verbose:
+            print(f"✓ Base model loaded from: {base_model_path}")
+    else:
+        warnings.warn(
+            "base_model.keras not found — rebuilding the architecture. Models trained "
+            "before BandPositionEmbedding will not reproduce their training predictions."
+        )
+        base_model = create_transformer_model(
+            input_shape=(n_bands,), n_blocks=3, embed_dim=64, n_heads=4
+        )
     pinn = PINNWrapper(
         base_model=base_model,
         n_bands=n_bands,
@@ -572,7 +609,17 @@ def load_bathymetry_model(
     if not os.path.exists(weights_path):
         raise FileNotFoundError(f"pinn_weights.weights.h5 not found in {model_dir}")
 
-    pinn.load_weights(weights_path)
+    try:
+        pinn.load_weights(weights_path)
+    except ValueError:
+        # Models trained before the physics parameters were tracked have no
+        # k/R0/Rinf in the weights file. The base model still loads; the physics
+        # parameters (unused for prediction) come from physics_params.json.
+        warnings.warn(
+            "Legacy weights file without physics parameters — loading the base "
+            "model only; k/R0/Rinf are taken from physics_params.json."
+        )
+        pinn.load_weights(weights_path, skip_mismatch=True)
     if verbose:
         print(f"✓ Weights restored from: {weights_path}")
 
